@@ -1,0 +1,36 @@
+{
+  "name": "ai-avatar",
+  "private": true,
+  "version": "0.0.1",
+  "homepage": "https://TusharYatageri.github.io/ai-avatar",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n \"server,client\" -c \"blue,green\" \"node server/index.js\" \"vite\"",
+    "dev:server": "node server/index.js",
+    "dev:client": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "node server/index.js"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.114.3",
+    "@react-three/fiber": "^8.17.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "google-tts-api": "^2.0.2",
+    "openai": "^6.14.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^5.1.2",
+    "concurrently": "^9.2.1",
+    "gh-pages": "^6.3.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.8"
+  }
+}
