@@ -9,8 +9,9 @@ type Props = { mouth: number; greetTrigger?: number; viseme?: number }
 const TALKING_SHAPES = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "21"]
 
 export default function AvatarCanvas({ mouth, greetTrigger = 0, viseme = 0 }: Props) {
-  const avatar = useGLTF('/models/Teacher_Nanami.glb')
-  const anim = useGLTF('/animations/animations_Nanami.glb')
+  const BASE = import.meta.env.BASE_URL.replace(/\/$/, '')
+  const avatar = useGLTF(`${BASE}/models/Teacher_Nanami.glb`)
+  const anim = useGLTF(`${BASE}/animations/animations_Nanami.glb`)
   const group = useRef<THREE.Group>(null)
   const { mixer, actions } = useAnimations(anim.animations, group)
 

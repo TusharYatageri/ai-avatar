@@ -16,10 +16,17 @@ export default function App() {
 
   useEffect(() => {
     let alive = true
+    const BASE = import.meta.env.BASE_URL.replace(/\/$/, '')
     async function check(url: string) {
-      const res = await fetch(url, { method: 'GET', cache: 'no-store' })
-      const ct = res.headers.get('content-type') || ''
-      return res.ok && !/text\/html/i.test(ct)
+      const fullUrl = `${BASE}${url}`
+      try {
+        const res = await fetch(fullUrl, { method: 'GET', cache: 'no-store' })
+        const ct = res.headers.get('content-type') || ''
+        return res.ok && !/text\/html/i.test(ct)
+      } catch (e) {
+        console.warn('Check failed for', fullUrl, e)
+        return false
+      }
     }
     const run = async () => {
       const a = await check('/models/Teacher_Nanami.glb')
