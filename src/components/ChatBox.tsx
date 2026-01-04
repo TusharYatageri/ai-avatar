@@ -20,6 +20,51 @@ export default function ChatBox({ audioRef }: Props) {
     }
   }, [])
 
+  async function clientChat(payloadMessages: Message[]) {
+    const key = (import.meta as any).env.VITE_GOOGLE_GEMINI_API_KEY
+    if (!key) {
+      throw new Error('Missing VITE_GOOGLE_GEMINI_API_KEY for client-side fallback')
+    }
+
+    const contents = payloadMessages.map((m) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }]
+    }))
+
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents })
+      }
+    )
+
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}))
+      throw new Error(errData?.error?.message || `Gemini API Error: ${resp.status}`)
+    }
+
+    const data = await resp.json()
+    const text =
+      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+      'I am unable to generate a response.'
+    
+    return text
+  }
+
+  function playClientTTS(text: string) {
+    if (!audioRef.current) return
+    // Simple Google Translate TTS fallback
+    // Note: This truncates at around 200 chars. For a full solution, we'd need to split sentences.
+    // Taking the first 200 chars for safety in this fallback.
+    const safeText = text.substring(0, 200)
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(safeText)}&tl=en&client=tw-ob`
+    
+    audioRef.current.src = url
+    audioRef.current.play().catch(e => console.warn('Client TTS play error', e))
+  }
+
   async function send() {
     if (!input.trim() || loading) return
     const userMsg: Message = { role: 'user', content: input.trim() }
@@ -28,85 +73,75 @@ export default function ChatBox({ audioRef }: Props) {
     setMessages((m) => [...m, userMsg])
     setInput('')
     setLoading(true)
+    
+    abortRef.current = new AbortController()
+    
     try {
-      abortRef.current = new AbortController()
-      const res = await fetch(`${API_BASE ? `${API_BASE}/api/chat` : '/api/chat'}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: payloadMessages }),
-        signal: abortRef.current.signal
-      })
+      // 1. Try Backend API
+      let assistantText = ''
+      let ttsPayload: any = null
+      let useClientFallback = false
 
-      // parse response safely
-      let payload: any = null
-      const contentType = res.headers.get('content-type') || ''
-      if (contentType.includes('application/json')) {
-        payload = await res.json().catch(() => null)
-      } else {
-        payload = await res.text().catch(() => null)
+      try {
+        const res = await fetch(`${API_BASE ? `${API_BASE}/api/chat` : '/api/chat'}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: payloadMessages }),
+            signal: abortRef.current.signal
+        })
+
+        if (res.status === 404 || res.status === 405) {
+            console.warn('Backend not found, switching to client-side fallback')
+            useClientFallback = true
+        } else if (!res.ok) {
+            const errText = await res.text()
+            throw new Error(`Server Error: ${res.status} ${errText}`)
+        } else {
+            const data = await res.json()
+            if (data.error) throw new Error(data.error)
+            assistantText = data.text
+            
+            // Try TTS from backend
+            try {
+                const ttsRes = await fetch(`${API_BASE ? `${API_BASE}/api/tts` : '/api/tts'}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: assistantText })
+                })
+                if (ttsRes.ok) {
+                    ttsPayload = await ttsRes.json()
+                }
+            } catch (e) {
+                console.warn('Backend TTS failed', e)
+            }
+        }
+      } catch (e) {
+        console.warn('Backend request failed', e)
+        useClientFallback = true
       }
 
-      if (!res.ok) {
-        const status = res.status
-        const details = payload ? (typeof payload === 'string' ? payload : JSON.stringify(payload)) : ''
-        const msg = `Chat request failed (${status})${details ? ' — ' + details : ''}`
-        console.error('Chat error response', { status, payload })
-        setErr(msg)
-        return
+      // 2. Client Fallback
+      if (useClientFallback) {
+        console.log('Using Client Fallback')
+        assistantText = await clientChat(payloadMessages)
       }
 
-      if (payload?.error) {
-        const msg = payload.error === 'missing_api_key'
-          ? 'API key missing'
-          : `${payload.error}${payload?.details ? ` — ${JSON.stringify(payload.details)}` : ''}`
-        setErr(msg)
-        return
-      }
-
-      const assistantText = payload?.text ?? ''
       const assistantMsg: Message = { role: 'assistant', content: assistantText }
       setMessages((m) => [...m, assistantMsg])
 
-      // TTS (non-fatal)
-      let ttsPayload: any = null
-      try {
-        console.log('Requesting TTS for:', assistantText.substring(0, 50) + '...')
-        const ttsRes = await fetch(`${API_BASE ? `${API_BASE}/api/tts` : '/api/tts'}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: assistantText })
-        })
-        ttsPayload = await ttsRes.json().catch(() => null)
-        if (!ttsRes.ok) {
-          console.warn('TTS request failed', ttsPayload)
-          // don't show fatal UI error — audio is optional
-        } else {
-          console.log('TTS received, audio length:', ttsPayload?.audio?.length)
-        }
-      } catch (e) {
-        console.warn('TTS network error', e)
-      }
-
-      // play audio if available
-      if (ttsPayload && ttsPayload.audio) {
-        try {
-          if (audioRef.current) {
-            console.log('Playing audio...')
+      // 3. Play Audio
+      if (ttsPayload?.audio) {
+        if (audioRef.current) {
             audioRef.current.src = `data:audio/${ttsPayload.format};base64,${ttsPayload.audio}`
             await audioRef.current.play()
-            console.log('Audio playing successfully')
-          } else {
-            console.error('audioRef.current is null')
-          }
-        } catch (playErr) {
-          console.warn('Failed to play TTS audio', playErr)
         }
-      } else if (ttsPayload && ttsPayload.warning) {
-        console.warn('TTS unavailable for this response', ttsPayload)
+      } else if (useClientFallback) {
+        playClientTTS(assistantText)
       }
+
     } catch (e: any) {
-      console.error('Network/send error', e)
-      setErr(e?.message || 'Network error')
+      console.error('Chat error', e)
+      setErr(e?.message || 'Error occurred')
     } finally {
       setLoading(false)
       abortRef.current = null
