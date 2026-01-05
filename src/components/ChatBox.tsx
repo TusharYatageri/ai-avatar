@@ -21,9 +21,9 @@ export default function ChatBox({ audioRef }: Props) {
   }, [])
 
   async function clientChat(payloadMessages: Message[]) {
-    const key = (import.meta as any).env.VITE_GOOGLE_GEMINI_API_KEY
+    const key = (import.meta as any).env.GOOGLE_GEMINI_API_KEY
     if (!key) {
-      throw new Error('Missing VITE_GOOGLE_GEMINI_API_KEY for client-side fallback')
+      throw new Error('Missing GOOGLE_GEMINI_API_KEY for client-side fallback')
     }
 
     const contents = payloadMessages.map((m) => ({
