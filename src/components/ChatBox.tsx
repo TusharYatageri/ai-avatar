@@ -132,11 +132,30 @@ export default function ChatBox({ audioRef }: Props) {
       // 3. Play Audio
       if (ttsPayload?.audio) {
         if (audioRef.current) {
-            audioRef.current.src = `data:audio/${ttsPayload.format};base64,${ttsPayload.audio}`
-            await audioRef.current.play()
+          audioRef.current.src = `data:audio/${ttsPayload.format};base64,${ttsPayload.audio}`
+          await audioRef.current.play()
         }
-      } else if (useClientFallback) {
-        playClientTTS(assistantText)
+      } else {
+        // Try backend TTS even in fallback, which uses server-side safe TTS without exposing keys
+        try {
+          const ttsRes = await fetch(`${API_BASE ? `${API_BASE}/api/tts` : '/api/tts'}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: assistantText })
+          })
+          if (ttsRes.ok) {
+            const p = await ttsRes.json()
+            if (p?.audio && audioRef.current) {
+              audioRef.current.src = `data:audio/${p.format};base64,${p.audio}`
+              await audioRef.current.play()
+            }
+          } else if (useClientFallback) {
+            // Final resort: client-side short TTS
+            playClientTTS(assistantText)
+          }
+        } catch {
+          if (useClientFallback) playClientTTS(assistantText)
+        }
       }
 
     } catch (e: any) {

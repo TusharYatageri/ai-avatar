@@ -179,7 +179,7 @@ export default function App() {
           </button>
         </div>
         <ChatBox audioRef={audioRef} />
-        <audio ref={audioRef} style={{ display: 'none' }} />
+        <audio ref={audioRef} crossOrigin="anonymous" style={{ display: 'none' }} />
       </div>
     </div>
   )
