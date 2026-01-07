@@ -108,11 +108,22 @@ app.post('/api/chat', async (req, res) => {
       res.status(status).json({ error: 'gemini_error', details })
       return
     }
-    const text =
+    const textRaw =
       json?.candidates?.[0]?.content?.parts?.[0]?.text ??
       json?.candidates?.[0]?.content?.parts?.map((p) => p?.text).filter(Boolean).join('\n') ??
       ''
-    res.json({ text })
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user')?.content || ''
+    const wantsBrief = /\bbrief\b|\bconcise\b|\bshort\b|\bsummary\b/i.test(String(lastUser))
+    const maxLines = wantsBrief ? 10 : 5
+    const sentences = String(textRaw).split(/\r?\n/).filter((l) => l.trim() !== '')
+    let textOut = ''
+    if (sentences.length > 0) {
+      textOut = sentences.slice(0, maxLines).join('\n')
+    } else {
+      const s2 = String(textRaw).split(/(?<=[.!?])\s+/)
+      textOut = s2.slice(0, maxLines).join('\n')
+    }
+    res.json({ text: textOut })
   } catch (e) {
     console.error('/api/chat error:', e)
     const msg = typeof e?.message === 'string' ? e.message : 'chat_failed'

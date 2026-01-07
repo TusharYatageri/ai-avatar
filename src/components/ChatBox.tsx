@@ -13,44 +13,59 @@ export default function ChatBox({ audioRef }: Props) {
   const [err, setErr] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const API_BASE = ((import.meta as any).env?.VITE_API_BASE || '').replace(/\/+$/, '')
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const endRef = useRef<HTMLDivElement | null>(null)
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const stripMath = (s: string) =>
+    s.replace(/\$\$([\s\S]*?)\$\$/g, '$1').replace(/\$([^$]+?)\$/g, '$1')
+  const toPlainText = (s: string) => {
+    let t = s
+    t = t.replace(/\$\$([\s\S]*?)\$\$/g, '$1')
+    t = t.replace(/\$([^$]+?)\$/g, '$1')
+    t = t.replace(/```([\s\S]*?)```/g, '$1')
+    t = t.replace(/`([^`]+?)`/g, '$1')
+    t = t.replace(/\*\*([^*]+)\*\*/g, '$1')
+    t = t.replace(/\*([^*]+)\*/g, '$1')
+    t = t.replace(/^#{1,6}\s?/gm, '')
+    t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+    t = t.replace(/^- (.*)$/gm, '$1')
+    t = t.replace(/\s+/g, ' ').trim()
+    return t
+  }
+  const limitReplyLines = (text: string, isBrief: boolean) => {
+    const lines = text.split('\n').filter((l) => l.trim() !== '')
+    const max = isBrief ? 10 : 5
+    return lines.slice(0, max).join('\n')
+  }
+  const md = (s: string) => {
+    let h = esc(stripMath(s))
+    h = h.replace(/^###\s?(.*)$/gm, '<h3>$1</h3>')
+    h = h.replace(/^##\s?(.*)$/gm, '<h2>$1</h2>')
+    h = h.replace(/^#\s?(.*)$/gm, '<h1>$1</h1>')
+    h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    h = h.replace(/\*(.+?)\*/g, '<em>$1</em>')
+    h = h.replace(/`([^`]+?)`/g, '<code>$1</code>')
+    h = h.replace(/```([\s\S]*?)```/g, (_m, p1) => `<pre><code>${esc(String(p1))}</code></pre>`)
+    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    h = h.replace(/^- (.*)$/gm, '<li>$1</li>')
+    h = h.replace(/(<li>[\s\S]*?<\/li>)/gm, '<ul>$1</ul>')
+    h = h.replace(/\n/g, '<br/>')
+    return h
+  }
 
   useEffect(() => {
     return () => {
       if (abortRef.current) abortRef.current.abort()
     }
   }, [])
+  useEffect(() => {
+    const el = listRef.current
+    if (el) el.scrollTop = el.scrollHeight
+    if (endRef.current) endRef.current.scrollIntoView({ behavior: 'auto', block: 'end' })
+  }, [messages, loading])
 
-  async function clientChat(payloadMessages: Message[]) {
-    const key = (import.meta as any).env.GOOGLE_GEMINI_API_KEY
-    if (!key) {
-      throw new Error('Missing GOOGLE_GEMINI_API_KEY for client-side fallback')
-    }
-
-    const contents = payloadMessages.map((m) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }]
-    }))
-
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents })
-      }
-    )
-
-    if (!resp.ok) {
-      const errData = await resp.json().catch(() => ({}))
-      throw new Error(errData?.error?.message || `Gemini API Error: ${resp.status}`)
-    }
-
-    const data = await resp.json()
-    const text =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      'I am unable to generate a response.'
-    
-    return text
+  async function clientChat(_payloadMessages: Message[]) {
+    throw new Error('Assistant is currently unavailable. Please try again later.')
   }
 
   function playClientTTS(text: string) {
@@ -91,8 +106,8 @@ export default function ChatBox({ audioRef }: Props) {
         })
 
         if (res.status === 404 || res.status === 405) {
-            console.warn('Backend not found, switching to client-side fallback')
-            useClientFallback = true
+            setErr('Assistant is currently unavailable. Please try again later.')
+            return
         } else if (!res.ok) {
             const errText = await res.text()
             throw new Error(`Server Error: ${res.status} ${errText}`)
@@ -106,7 +121,7 @@ export default function ChatBox({ audioRef }: Props) {
                 const ttsRes = await fetch(`${API_BASE ? `${API_BASE}/api/tts` : '/api/tts'}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: assistantText })
+                    body: JSON.stringify({ text: toPlainText(assistantText) })
                 })
                 if (ttsRes.ok) {
                     ttsPayload = await ttsRes.json()
@@ -116,20 +131,23 @@ export default function ChatBox({ audioRef }: Props) {
             }
         }
       } catch (e) {
-        console.warn('Backend request failed', e)
-        useClientFallback = true
+        setErr('Assistant is currently unavailable. Please try again later.')
+        return
       }
 
       // 2. Client Fallback
       if (useClientFallback) {
-        console.log('Using Client Fallback')
-        assistantText = await clientChat(payloadMessages)
+        setErr('Assistant is currently unavailable. Please try again later.')
+        return
       }
 
-      const assistantMsg: Message = { role: 'assistant', content: assistantText }
+      const isBrief = /brief/i.test(userMsg.content)
+      const limitedText = limitReplyLines(assistantText, isBrief)
+      const assistantMsg: Message = { role: 'assistant', content: limitedText }
       setMessages((m) => [...m, assistantMsg])
 
       // 3. Play Audio
+      const talkText = toPlainText(limitedText)
       if (ttsPayload?.audio) {
         if (audioRef.current) {
           audioRef.current.src = `data:audio/${ttsPayload.format};base64,${ttsPayload.audio}`
@@ -141,7 +159,7 @@ export default function ChatBox({ audioRef }: Props) {
           const ttsRes = await fetch(`${API_BASE ? `${API_BASE}/api/tts` : '/api/tts'}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: assistantText })
+            body: JSON.stringify({ text: talkText })
           })
           if (ttsRes.ok) {
             const p = await ttsRes.json()
@@ -150,11 +168,10 @@ export default function ChatBox({ audioRef }: Props) {
               await audioRef.current.play()
             }
           } else if (useClientFallback) {
-            // Final resort: client-side short TTS
-            playClientTTS(assistantText)
+            setErr('Assistant is currently unavailable. Please try again later.')
           }
         } catch {
-          if (useClientFallback) playClientTTS(assistantText)
+          if (useClientFallback) setErr('Assistant is currently unavailable. Please try again later.')
         }
       }
 
@@ -169,11 +186,18 @@ export default function ChatBox({ audioRef }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, width: '100%', minHeight: 0 }}>
-      <div style={{ flex: 1, overflow: 'auto', border: '1px solid #222', borderRadius: 8, padding: 12, minHeight: 0 }}>
+      <div ref={listRef} style={{ flex: 1, overflowY: 'auto', border: '1px solid #222', borderRadius: 8, padding: 12, minHeight: 0 }}>
         {messages.map((m, i) => (
-          <div key={i} style={{ marginBottom: 8, wordBreak: 'break-word', lineHeight: 1.4 }}>
-            <b>{m.role === 'user' ? 'You' : 'Assistant'}:</b> {m.content}
-          </div>
+          m.role === 'user' ? (
+            <div key={i} style={{ marginBottom: 8, wordBreak: 'break-word', lineHeight: 1.4 }}>
+              <b>You:</b> {m.content}
+            </div>
+          ) : (
+            <div key={i} style={{ marginBottom: 8, wordBreak: 'break-word', lineHeight: 1.4 }}>
+              <b>Assistant:</b>{' '}
+              <span dangerouslySetInnerHTML={{ __html: md(m.content) }} />
+            </div>
+          )
         ))}
         {loading && <div>Thinking…</div>}
         {err && (
@@ -181,6 +205,7 @@ export default function ChatBox({ audioRef }: Props) {
             {err}
           </div>
         )}
+        <div ref={endRef} />
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
         <input

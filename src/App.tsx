@@ -70,7 +70,7 @@ export default function App() {
   useAudioMouthSync(audioRef, setMouth, setViseme)
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 420px', height: '100vh' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 420px', height: '100vh', overflow: 'hidden' }}>
       <div style={{ background: '#0c0e12', position: 'relative' }}>
         <Canvas camera={{ position: [0, 1.5, 3], fov: 40 }}>
           <color attach="background" args={['#0c0e12']} />
