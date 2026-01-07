@@ -60,8 +60,11 @@ export default function ChatBox({ audioRef }: Props) {
   }, [])
   useEffect(() => {
     const el = listRef.current
-    if (el) el.scrollTop = el.scrollHeight
-    if (endRef.current) endRef.current.scrollIntoView({ behavior: 'auto', block: 'end' })
+    if (el) {
+      const h = el.scrollHeight
+      requestAnimationFrame(() => el.scrollTo({ top: h, behavior: 'smooth' }))
+    }
+    if (endRef.current) endRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, loading])
 
   async function clientChat(_payloadMessages: Message[]) {
@@ -185,7 +188,7 @@ export default function ChatBox({ audioRef }: Props) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, width: '100%', minHeight: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', height: 620, flex: '0 0 auto', overflow: 'hidden' }}>
       <div ref={listRef} style={{ flex: 1, overflowY: 'auto', border: '1px solid #222', borderRadius: 8, padding: 12, minHeight: 0 }}>
         {messages.map((m, i) => (
           m.role === 'user' ? (

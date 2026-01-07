@@ -115,9 +115,6 @@ export default function App() {
       </div>
       <div style={{ borderLeft: isNarrow ? undefined : '1px solid #1f2533', borderTop: isNarrow ? '1px solid #1f2533' : undefined, padding: 16, display: 'flex', flexDirection: 'column' }}>
         <h2 style={{ margin: 0 }}>AI Avatar</h2>
-        <p style={{ color: '#777', marginTop: 4 }}>
-          Uses <code>public/models/Teacher_Nanami.glb</code> and <code>public/animations/animations_Nanami.glb</code>.
-        </p>
         {!readyAvatar && (
           <div style={{ background: '#101521', border: '1px solid #1f2533', borderRadius: 8, padding: 10, marginBottom: 10 }}>
             Files not found. Add GLB files to load the avatar.
