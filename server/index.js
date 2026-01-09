@@ -20,7 +20,8 @@ app.post('/api/chat', async (req, res) => {
     const key = process.env.GOOGLE_GEMINI_API_KEY
     if (!key) {
       console.error('Missing GOOGLE_GEMINI_API_KEY')
-      res.status(500).json({ error: 'missing_api_key' })
+      const fallbackText = 'Hari Om! \n Ai Tutor is currently unavailable. Please try again later.'
+      res.json({ text: fallbackText, warning: 'fallback', debug: { reason: 'missing_api_key' } })
       return
     }
 
@@ -32,7 +33,7 @@ app.post('/api/chat', async (req, res) => {
 
     // Build Gemini contents from chat history
     const contents = messages.map((m) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
+      role: m.role === 'mentor' ? 'model' : 'user',
       parts: [{ text: String(m.content || '') }]
     }))
 
@@ -98,14 +99,10 @@ app.post('/api/chat', async (req, res) => {
         }
         // If still failing, proceed to fallback/return error
       }
-      const allowFallback = process.env.DEV_FAKE_RESPONSE === 'true' || status === 429
-      if (allowFallback) {
-        const hint = status === 429 ? 'Gemini quota or billing issue detected.' : 'Model not found or temporary failure.'
-        const fallbackText = `I’m temporarily unavailable. ${hint} Here’s a placeholder reply so you can continue testing.`
-        res.json({ text: fallbackText, warning: 'fallback', debug: { status, details, endpoint, model } })
-        return
-      }
-      res.status(status).json({ error: 'gemini_error', details })
+      const hint = status === 429 ? 'We’ve hit a temporary usage limit. Everything will be back shortly 🙂' : 'Ai Tutor is currently unavailable. Please try again later.'
+      if (status === 429) console.warn('API quota has expired!')
+      const fallbackText = `Hari Om! \n ${hint}`
+      res.json({ text: fallbackText, warning: 'fallback', debug: { status, details, endpoint, model } })
       return
     }
     const textRaw =
@@ -113,7 +110,7 @@ app.post('/api/chat', async (req, res) => {
       json?.candidates?.[0]?.content?.parts?.map((p) => p?.text).filter(Boolean).join('\n') ??
       ''
     const lastUser = [...messages].reverse().find((m) => m.role === 'user')?.content || ''
-    const wantsBrief = /\bbrief\b|\bconcise\b|\bshort\b|\bsummary\b/i.test(String(lastUser))
+    const wantsBrief = /\bbrief\b|\bconcise\b|\bshort\b|\bsummary\b|\bmore\b|\bless\b|\bneatly\b/i.test(String(lastUser))
     const maxLines = wantsBrief ? 10 : 5
     const sentences = String(textRaw).split(/\r?\n/).filter((l) => l.trim() !== '')
     let textOut = ''
@@ -126,8 +123,8 @@ app.post('/api/chat', async (req, res) => {
     res.json({ text: textOut })
   } catch (e) {
     console.error('/api/chat error:', e)
-    const msg = typeof e?.message === 'string' ? e.message : 'chat_failed'
-    res.status(500).json({ error: msg })
+    const fallbackText = 'Hari Om! \n Ai Tutor is currently unavailable. Please try again later.'
+    res.json({ text: fallbackText, warning: 'fallback', debug: { reason: 'exception' } })
   }
 })
 
@@ -143,7 +140,7 @@ app.post('/api/tts', async (req, res) => {
       const voice = process.env.GOOGLE_TTS_VOICE || 'en-US-Standard-A'
 
       if (!key) {
-        console.log('No GOOGLE_TTS_API_KEY, using free google-tts-api fallback')
+        console.log('No GOOGLE_TTS_API_KEY, Using free GOOGLE_TTS_API fallback')
         try {
           // Split text if long (200 char limit usually applied by the library's getAudioUrl, 
           // but getAllAudioUrls handles splitting)

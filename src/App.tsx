@@ -13,6 +13,7 @@ export default function App() {
   const [greetPlaying, setGreetPlaying] = useState(false)
   const [greetTrigger, setGreetTrigger] = useState(0)
   const [isNarrow, setIsNarrow] = useState(false)
+  const BG = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/Gurukul_bg.png`
 
   useEffect(() => {
     let alive = true
@@ -70,10 +71,9 @@ export default function App() {
   useAudioMouthSync(audioRef, setMouth, setViseme)
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 420px', height: '100vh', overflow: 'hidden' }}>
-      <div style={{ background: '#0c0e12', position: 'relative' }}>
-        <Canvas camera={{ position: [0, 1.5, 3], fov: 40 }}>
-          <color attach="background" args={['#0c0e12']} />
+    <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 420px', height: '680px', overflow: 'hidden' }}>
+      <div style={{ backgroundImage: `url(${BG})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', position: 'relative' }}>
+        <Canvas camera={{ position: [0, 1.5, 3], fov: 40 }} gl={{ alpha: true }}>
           <ambientLight intensity={0.6} />
           <directionalLight position={[3, 5, 2]} intensity={1.1} />
           {readyAvatar ? (
@@ -114,7 +114,7 @@ export default function App() {
 
       </div>
       <div style={{ borderLeft: isNarrow ? undefined : '1px solid #1f2533', borderTop: isNarrow ? '1px solid #1f2533' : undefined, padding: 16, display: 'flex', flexDirection: 'column' }}>
-        <h2 style={{ margin: 0 }}>AI Avatar</h2>
+        <img src='./Wizkids_logo.png' alt='Wizkids_Logo' style={{ width: 320, marginBottom: 10, marginLeft:'-10px', marginTop:'-20px'}} />
         {!readyAvatar && (
           <div style={{ background: '#101521', border: '1px solid #1f2533', borderRadius: 8, padding: 10, marginBottom: 10 }}>
             Files not found. Add GLB files to load the avatar.

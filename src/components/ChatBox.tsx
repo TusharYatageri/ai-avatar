@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-type Message = { role: 'user' | 'assistant'; content: string }
+type Message = { role: 'user' | 'mentor'; content: string }
 
 type Props = {
   audioRef: React.MutableRefObject<HTMLAudioElement | null>
@@ -34,7 +34,7 @@ export default function ChatBox({ audioRef }: Props) {
   }
   const limitReplyLines = (text: string, isBrief: boolean) => {
     const lines = text.split('\n').filter((l) => l.trim() !== '')
-    const max = isBrief ? 10 : 5
+    const max = isBrief ? 15 : 5
     return lines.slice(0, max).join('\n')
   }
   const md = (s: string) => {
@@ -68,7 +68,7 @@ export default function ChatBox({ audioRef }: Props) {
   }, [messages, loading])
 
   async function clientChat(_payloadMessages: Message[]) {
-    throw new Error('Assistant is currently unavailable. Please try again later.')
+    throw new Error('Hari Om! \n Ai Tutor is currently unavailable! Please try again later.')
   }
 
   function playClientTTS(text: string) {
@@ -94,11 +94,11 @@ export default function ChatBox({ audioRef }: Props) {
     
     abortRef.current = new AbortController()
     
+    // 1. Try Backend API
+    let assistantText = ''
+    let ttsPayload: any = null
+    const unavailableMsg = 'Hari Om! \n Ai Tutor is currently unavailable. Please try again later.'
     try {
-      // 1. Try Backend API
-      let assistantText = ''
-      let ttsPayload: any = null
-      let useClientFallback = false
 
       try {
         const res = await fetch(`${API_BASE ? `${API_BASE}/api/chat` : '/api/chat'}`, {
@@ -109,14 +109,17 @@ export default function ChatBox({ audioRef }: Props) {
         })
 
         if (res.status === 404 || res.status === 405) {
-            setErr('Assistant is currently unavailable. Please try again later.')
-            return
+            assistantText = unavailableMsg
+            setErr(null)
         } else if (!res.ok) {
-            const errText = await res.text()
-            throw new Error(`Server Error: ${res.status} ${errText}`)
+            assistantText = unavailableMsg
+            setErr(null)
         } else {
             const data = await res.json()
             if (data.error) throw new Error(data.error)
+            if (data?.warning === 'fallback' && data?.debug?.status === 429) {
+              console.warn('api quota expired')
+            }
             assistantText = data.text
             
             // Try TTS from backend
@@ -134,19 +137,14 @@ export default function ChatBox({ audioRef }: Props) {
             }
         }
       } catch (e) {
-        setErr('Assistant is currently unavailable. Please try again later.')
-        return
+        setErr(unavailableMsg)
+        assistantText = unavailableMsg
       }
 
-      // 2. Client Fallback
-      if (useClientFallback) {
-        setErr('Assistant is currently unavailable. Please try again later.')
-        return
-      }
-
+      // 2. Prepare assistant message (with brief limiter)
       const isBrief = /brief/i.test(userMsg.content)
       const limitedText = limitReplyLines(assistantText, isBrief)
-      const assistantMsg: Message = { role: 'assistant', content: limitedText }
+      const assistantMsg: Message = { role: 'mentor', content: limitedText }
       setMessages((m) => [...m, assistantMsg])
 
       // 3. Play Audio
@@ -157,7 +155,7 @@ export default function ChatBox({ audioRef }: Props) {
           await audioRef.current.play()
         }
       } else {
-        // Try backend TTS even in fallback, which uses server-side safe TTS without exposing keys
+        // Try backend TTS (again if needed)
         try {
           const ttsRes = await fetch(`${API_BASE ? `${API_BASE}/api/tts` : '/api/tts'}`, {
             method: 'POST',
@@ -170,17 +168,16 @@ export default function ChatBox({ audioRef }: Props) {
               audioRef.current.src = `data:audio/${p.format};base64,${p.audio}`
               await audioRef.current.play()
             }
-          } else if (useClientFallback) {
-            setErr('Assistant is currently unavailable. Please try again later.')
           }
         } catch {
-          if (useClientFallback) setErr('Assistant is currently unavailable. Please try again later.')
+          // ignore
         }
+        // No client-side TTS to avoid CORS errors
       }
 
     } catch (e: any) {
       console.error('Chat error', e)
-      setErr(e?.message || 'Error occurred')
+      setErr(assistantText === unavailableMsg ? null : (e?.message || 'Error occurred'))
     } finally {
       setLoading(false)
       abortRef.current = null
@@ -188,7 +185,7 @@ export default function ChatBox({ audioRef }: Props) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', height: 620, flex: '0 0 auto', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', height: '550px', flex: '0 0 auto', overflow: 'hidden' }}>
       <div ref={listRef} style={{ flex: 1, overflowY: 'auto', border: '1px solid #222', borderRadius: 8, padding: 12, minHeight: 0 }}>
         {messages.map((m, i) => (
           m.role === 'user' ? (
@@ -197,12 +194,12 @@ export default function ChatBox({ audioRef }: Props) {
             </div>
           ) : (
             <div key={i} style={{ marginBottom: 8, wordBreak: 'break-word', lineHeight: 1.4 }}>
-              <b>Assistant:</b>{' '}
+              <b>Maya:</b>{' '}
               <span dangerouslySetInnerHTML={{ __html: md(m.content) }} />
             </div>
           )
         ))}
-        {loading && <div>Thinking…</div>}
+        {loading && <div>Thinking🤔</div>}
         {err && (
           <div style={{ marginTop: 8, color: '#d33' }}>
             {err}

@@ -13,7 +13,29 @@ export default function AvatarCanvas({ mouth, greetTrigger = 0, viseme = 0 }: Pr
   const avatar = useGLTF(`${BASE}/models/Teacher_Nanami.glb`)
   const anim = useGLTF(`${BASE}/animations/animations_Nanami.glb`)
   const group = useRef<THREE.Group>(null)
-  const { mixer, actions } = useAnimations(anim.animations, group)
+  const nodeNames = useMemo(() => {
+    const s = new Set<string>()
+    avatar.scene.traverse((obj) => {
+      if (obj.name) s.add(obj.name)
+    })
+    return s
+  }, [avatar.scene])
+  const filteredAnimations = useMemo(() => {
+    return (anim.animations || []).map((clip) => {
+      const tracks = clip.tracks.filter((t) => {
+        const node = t.name.split('.')[0]
+        if (!nodeNames.has(node)) return false
+        if (/_end$/i.test(node)) return false
+        return true
+      })
+      return new THREE.AnimationClip(clip.name, clip.duration, tracks)
+    })
+  }, [anim.animations, nodeNames])
+  const { mixer, actions } = useAnimations(filteredAnimations, group)
+  const availableNames = useMemo(() => Object.keys(actions || {}), [actions])
+  const currentAction = useRef<string | null>(null)
+  const switchTimer = useRef(0)
+  const animIndexRef = useRef(0)
 
   // Build a list of morph-capable meshes and discover indices for talking shapes + fallback mouthOpen
   const faceMeshes = useMemo(() => {
@@ -36,7 +58,7 @@ export default function AvatarCanvas({ mouth, greetTrigger = 0, viseme = 0 }: Pr
 
       // fallback: common named mouth index
       let mouthIndex: number | undefined = undefined
-      const mouthCandidates = ['mouthOpen', 'jawOpen', 'MouthOpen', 'JawOpen', 'viseme_aa', 'viseme_oh', 'viseme_ee', 'vrc.v_aa', 'A', 'E', 'O', 'U']
+      const mouthCandidates = ['mouthOpen', 'jawOpen', 'MouthOpen', 'JawOpen', 'viseme_aa', 'viseme_oh', 'viseme_ee', 'vrc.v_aa', 'A', 'E', 'I', 'O', 'U']
       mouthIndex = mouthCandidates.map((n) => dict[n]).find((i) => i !== undefined)
 
       // also try to find any viseme_* keys if shapeIndices empty
@@ -84,26 +106,19 @@ export default function AvatarCanvas({ mouth, greetTrigger = 0, viseme = 0 }: Pr
   const visemeTimer = useRef(0)
   const currentViseme = useRef<number | null>(null)
 
+  // initialize an idle or first available action
+
   useEffect(() => {
     if (!mixer) return
-    const clip = anim.animations && anim.animations[0]
-    if (clip) {
-      const names = new Set<string>()
-      avatar.scene.traverse((obj) => {
-        if (obj.name) names.add(obj.name)
-      })
-      const filtered = new THREE.AnimationClip(
-        clip.name,
-        clip.duration,
-        clip.tracks.filter((t) => {
-          const node = t.name.split('.')[0]
-          return names.has(node)
-        })
-      )
-      const action = mixer.clipAction(filtered, group.current!)
-      action.play()
+    const idle = actions && actions['Idle']
+    if (idle) {
+      idle.reset().fadeIn(0.2).play()
+      currentAction.current = 'Idle'
+    } else if (availableNames[0]) {
+      actions?.[availableNames[0]]?.reset().fadeIn(0.2).play()
+      currentAction.current = availableNames[0]
     }
-  }, [mixer, anim.animations])
+  }, [mixer, actions, availableNames])
 
   // Play a greeting animation on demand (triggered by prop change)
   useEffect(() => {
@@ -137,6 +152,35 @@ export default function AvatarCanvas({ mouth, greetTrigger = 0, viseme = 0 }: Pr
     const talking = v > 0.02
     const allShapeIndices = faceMeshes.flatMap((fm) => fm.shapeIndices)
     if (talking) {
+      switchTimer.current += delta
+      const animInterval = THREE.MathUtils.lerp(4.0, 2.0, THREE.MathUtils.clamp(v, 0, 1))
+      if ((currentAction.current && /idle/i.test(currentAction.current)) || switchTimer.current >= animInterval) {
+        switchTimer.current = 0
+        const pool = availableNames.filter((n) => !/idle/i.test(n))
+        if (pool.length) {
+          const nextIdx = animIndexRef.current % pool.length
+          let next = pool[nextIdx]
+          if (next === currentAction.current) {
+            const altIdx = (nextIdx + 1) % pool.length
+            next = pool[altIdx]
+            animIndexRef.current = altIdx + 1
+          } else {
+            animIndexRef.current = nextIdx + 1
+          }
+          if (next !== currentAction.current) {
+            Object.entries(actions || {}).forEach(([name, act]) => {
+              if (name === next) {
+                if (act) {
+                  act.reset().fadeIn(0.2).setLoop(THREE.LoopRepeat, Infinity).play()
+                }
+              } else {
+                act?.fadeOut(0.2)
+              }
+            })
+            currentAction.current = next
+          }
+        }
+      }
       // If a spectral viseme is available (0..1), map that directly to a shape index for deterministic mapping
       if (typeof viseme === 'number' && viseme > 0 && allShapeIndices.length > 0) {
         const pos = Math.floor(THREE.MathUtils.clamp(viseme, 0, 0.9999) * allShapeIndices.length)
@@ -156,6 +200,19 @@ export default function AvatarCanvas({ mouth, greetTrigger = 0, viseme = 0 }: Pr
         }
       }
     } else {
+      switchTimer.current = 0
+      if (currentAction.current !== 'Idle' && actions && actions['Idle']) {
+        Object.entries(actions || {}).forEach(([name, act]) => {
+          if (name === 'Idle') {
+            if (act) {
+              act.reset().fadeIn(0.25).setLoop(THREE.LoopRepeat, Infinity).play()
+            }
+          } else {
+            act?.fadeOut(0.25)
+          }
+        })
+        currentAction.current = 'Idle'
+      }
       visemeTimer.current = 0
       currentViseme.current = null
     }
