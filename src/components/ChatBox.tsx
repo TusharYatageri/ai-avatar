@@ -189,12 +189,12 @@ export default function ChatBox({ audioRef }: Props) {
       <div ref={listRef} style={{ flex: 1, overflowY: 'auto', border: '1px solid #222', borderRadius: 8, padding: 12, minHeight: 0 }}>
         {messages.map((m, i) => (
           m.role === 'user' ? (
-            <div key={i} style={{ marginBottom: 8, wordBreak: 'break-word', lineHeight: 1.4 }}>
-              <b>You:</b> {m.content}
+            <div key={i} style={{ marginBottom: 8, wordBreak: 'break-word', lineHeight: 1.4, fontFamily: 'helvetica, sans-serif' }}>
+              <b style={{ color: '#02a9f6ff'}}>You:</b> {m.content}
             </div>
           ) : (
-            <div key={i} style={{ marginBottom: 8, wordBreak: 'break-word', lineHeight: 1.4 }}>
-              <b>Maya:</b>{' '}
+            <div key={i} style={{ marginBottom: 8, wordBreak: 'break-word', lineHeight: 1.4, fontFamily: 'helvetica, sans-serif' }}>
+              <b style={{ color: '#f6a002ff' }}>Maya:</b>{' '}
               <span dangerouslySetInnerHTML={{ __html: md(m.content) }} />
             </div>
           )
@@ -211,8 +211,14 @@ export default function ChatBox({ audioRef }: Props) {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask a question"
-          style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #222' }}
+          onKeyDown={(e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+          send()
+        }
+      }}
+        placeholder="Ask a question"
+        style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #222' }}
         />
         <button onClick={send} disabled={loading} style={{ padding: '10px 14px' }}>
           Send
