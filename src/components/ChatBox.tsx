@@ -9,6 +9,30 @@ type Props = {
 export default function ChatBox({ audioRef }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
+  const [prompt, setPrompt] = useState(`You are an AI \${role} named \${name} for a young Student at **Wizkids Gurukul** level \${level} as per NCERT and NEP 2020 5+3+3+4 model.
+Your responses should be:
+- Direct, short, simple, succinct and easy to understand. Skip unnecessary details and verbosity.
+- In markdown format, include headings, bullet points, and code blocks where appropriate.
+- Include LaTeX for mathematical expressions where appropriate.
+- Stay focused on the current topic.
+- Include inline/native/blob images where appropriate.
+- Break down complex concepts into simple steps.
+- Encourage curiosity and critical thinking, prompt them to ask right questions and think deeper instead of just providing answers.
+
+Avoid:
+- Don't suggest videos or external resources.
+
+Politely refuse to:
+- Summarize a topic or provide a conclusion.
+- Summarize media content like books, images, audio, videos, etc.
+
+In the end:
+- Remind the student about possibility of inaccuracies in answers given by AI and encourage to research, think and verify on their own.
+
+Question/Topic from the student: \${prompt}.`)
+  const [name, useName] = useState('Maya');
+  const [role, setRole] = useState('mentor')
+  const [level, setLevel] = useState('foundational')
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -32,23 +56,76 @@ export default function ChatBox({ audioRef }: Props) {
     t = t.replace(/\s+/g, ' ').trim()
     return t
   }
-  const limitReplyLines = (text: string, isBrief: boolean) => {
-    const lines = text.split('\n').filter((l) => l.trim() !== '')
-    const max = isBrief ? 15 : 5
-    return lines.slice(0, max).join('\n')
+  const limitReplySmart = (text: string, isBrief: boolean, userQ: string) => {
+    const raw = text.split(/\r?\n/)
+    const cleaned: string[] = []
+    for (let i = 0; i < raw.length; i++) {
+      const l = raw[i]
+      if (l.trim() === '' && (cleaned.length === 0 || cleaned[cleaned.length - 1].trim() === '')) continue
+      cleaned.push(l)
+    }
+    const q = String(userQ || '').toLowerCase()
+    const wantsList = /\b(list|parts|types|categories|ingredients|steps|topics|points)\b/.test(q)
+    const wantsHowTo = /\b(how to|recipe|make|build|create|procedure|method)\b/.test(q)
+    const wantsMath = /\b(equation|derive|prove|solve|theorem|formula)\b/.test(q)
+    const targetMin = wantsList || wantsHowTo || wantsMath ? 8 : 6
+    const targetMax = wantsList || wantsHowTo ? (isBrief ? 10 : 22) : wantsMath ? (isBrief ? 9 : 16) : (isBrief ? 8 : 11)
+    if (cleaned.filter((l) => l.trim() !== '').length <= targetMax) return cleaned.join('\n')
+    let out: string[] = []
+    let i = 0
+    let inCode = false
+    let inList = false
+    while (i < cleaned.length && out.length < targetMax) {
+      const l = cleaned[i]
+      const isFence = /^```/.test(l.trim())
+      if (isFence) inCode = !inCode
+      const isListItem = /^\s*(?:[-*]|\d+\.)\s+/.test(l)
+      if (isListItem) inList = true
+      out.push(l)
+      i++
+      if (!inCode && inList && out.length >= targetMin && out.length >= targetMax) {
+        while (i < cleaned.length && /^\s*(?:[-*]|\d+\.)\s+/.test(cleaned[i])) {
+          out.push(cleaned[i])
+          i++
+          if (out.length >= targetMax + 6) break
+        }
+        inList = false
+      }
+      if (inCode && out.length >= targetMin && out.length >= targetMax) {
+        while (i < cleaned.length && !/^```/.test(cleaned[i].trim())) {
+          out.push(cleaned[i])
+          i++
+        }
+        if (i < cleaned.length) {
+          out.push(cleaned[i])
+          i++
+        }
+        inCode = false
+      }
+      if (!inCode && /^#{1,6}\s/.test(l) && i < cleaned.length && out.length >= targetMin && out.length >= targetMax) {
+        out.push(cleaned[i])
+        i++
+      }
+    }
+    while (out.length > 0 && out[out.length - 1].trim() === '') out.pop()
+    return out.join('\n')
   }
   const md = (s: string) => {
     let h = esc(stripMath(s))
-    h = h.replace(/^###\s?(.*)$/gm, '<h3>$1</h3>')
-    h = h.replace(/^##\s?(.*)$/gm, '<h2>$1</h2>')
-    h = h.replace(/^#\s?(.*)$/gm, '<h1>$1</h1>')
+    h = h.replace(/^###\s?(.*)$/gm, '<h3 style="margin:6px 0 4px 0;">$1</h3>')
+    h = h.replace(/^##\s?(.*)$/gm, '<h2 style="margin:6px 0 4px 0;">$1</h2>')
+    h = h.replace(/^#\s?(.*)$/gm, '<h1 style="margin:6px 0 4px 0;">$1</h1>')
     h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     h = h.replace(/\*(.+?)\*/g, '<em>$1</em>')
     h = h.replace(/`([^`]+?)`/g, '<code>$1</code>')
     h = h.replace(/```([\s\S]*?)```/g, (_m, p1) => `<pre><code>${esc(String(p1))}</code></pre>`)
     h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
-    h = h.replace(/^- (.*)$/gm, '<li>$1</li>')
-    h = h.replace(/(<li>[\s\S]*?<\/li>)/gm, '<ul>$1</ul>')
+    h = h.replace(/^\s*[-*]\s+(.*)$/gm, '<li style="margin:4px 0;">$1</li>')
+    h = h.replace(/(?:<li[\s\S]*?<\/li>\s*)+/g, (m) => `<ul style="margin:6px 0;padding-left:18px;">${m}</ul>`)
+    h = h.replace(/<ul[^>]*>\s*<br\/>/g, (m) => m.replace('<br/>', ''))
+    h = h.replace(/<\/ul>\s*<br\/>/g, '</ul>')
+    h = h.replace(/(<h[1-3][^>]*>.*?<\/h[1-3]>)(?:<br\/>)+/g, '$1')
+    h = h.replace(/\n{2,}/g, '\n')
     h = h.replace(/\n/g, '<br/>')
     return h
   }
@@ -68,7 +145,7 @@ export default function ChatBox({ audioRef }: Props) {
   }, [messages, loading])
 
   async function clientChat(_payloadMessages: Message[]) {
-    throw new Error('Hari Om! \n Ai Tutor is currently unavailable! Please try again later.')
+    return
   }
 
   function playClientTTS(text: string) {
@@ -86,7 +163,13 @@ export default function ChatBox({ audioRef }: Props) {
   async function send() {
     if (!input.trim() || loading) return
     const userMsg: Message = { role: 'user', content: input.trim() }
-    const payloadMessages = [...messages, userMsg]
+    const systemPrompt = prompt.trim()
+      .replace(/\$\{role\}/g, role.trim())
+      .replace(/\$\{name\}/g, name.trim())
+      .replace(/\$\{level\}/g, level.trim())
+      .replace(/\$\{prompt\}/g, userMsg.content)
+    const promptMsg: Message = { role: 'user', content: systemPrompt }
+    const payloadMessages = [promptMsg, ...messages, userMsg]
     setErr(null)
     setMessages((m) => [...m, userMsg])
     setInput('')
@@ -143,7 +226,7 @@ export default function ChatBox({ audioRef }: Props) {
 
       // 2. Prepare assistant message (with brief limiter)
       const isBrief = /brief/i.test(userMsg.content)
-      const limitedText = limitReplyLines(assistantText, isBrief)
+      const limitedText = limitReplySmart(assistantText, isBrief, userMsg.content)
       const assistantMsg: Message = { role: 'mentor', content: limitedText }
       setMessages((m) => [...m, assistantMsg])
 
